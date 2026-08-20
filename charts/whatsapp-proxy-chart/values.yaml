@@ -101,6 +101,10 @@ tolerations: []
 
 affinity: {}
 
+# Extra init containers to run before HAProxy. The rendered YAML supports tpl
+# expressions, including references to the main image repository and tag.
+extraInitContainers: []
+
 # Extra volumes to attach to the pod, rendered as-is into the Deployment's
 # spec.template.spec.volumes
 extraVolumes: []
