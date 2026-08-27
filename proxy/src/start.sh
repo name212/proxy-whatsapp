@@ -8,6 +8,8 @@ set -Eeuo pipefail
 
 working_dir=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 
+WHATSAPP_START_CONFIG_FILES=()
+
 haproxy_cfg_default="${working_dir}/whatsapp-haproxy.cfg"
 media_port_default="7777"
 chat_port_default="443"
@@ -39,8 +41,8 @@ function usage() {
     echo "Usage: $0 [OPTIONS]"
     echo "Options:"
     echo "  -c|--config PATH - Path to config file with envs params"
-    echo "                     Also can be passed via env WHATSAPP_START_CONFIG_FILE"
     echo "                     Optional. Next envs can be export directly without using config file."
+    echo "                     Can be use multiple times."
     echo "                     Config file should be dot env file with next variables:"
     echo "                     Start script envs:"
     echo "                     - WHATSAPP_HAPROXY_BIN - path to haproxy binary."
@@ -90,65 +92,73 @@ function usage() {
     exit "$exit_code"
 }
 
-if [ -z "${WHATSAPP_START_CONFIG_FILE:-}" ]; then
-    WHATSAPP_START_CONFIG_FILE=""
-fi
+function parse_args() {
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            -c|--config)
+                if [[ -z "${2:-}" || "${2:-}" == -* ]]; then
+                    exit_with_err "Error: Argument for $1 is missing"
+                fi
+                WHATSAPP_START_CONFIG_FILES+=("${2-}")
+                shift 2
+            ;;
+            -h|--help)
+                usage "0"
+            ;;
+            *)
+                echo_err "Unknown argument '${1}'"
+                usage "1"
+            ;;
+        esac
+    done
+}
 
-while [[ $# -gt 0 ]]; do
-    case "$1" in
-        -c|--config)
-            if [[ -z "${2:-}" || "${2:-}" == -* ]]; then
-                exit_with_err "Error: Argument for $1 is missing" >&2
-            fi
-            WHATSAPP_START_CONFIG_FILE="${2-}"
-            shift 2
-        ;;
-        -h|--help)
-            usage "0"
-        ;;
-        *)
-            echo_err "Unknown argument '${1}'"
-            usage "1"
-        ;;
-    esac
-done
+function load_envs_file() {
+    local conf_file="$1"
+    if [ -z "$conf_file" ]; then
+        return 0
+    fi
 
-echo "--- init logs ---"
-
-if [ -n "${WHATSAPP_START_CONFIG_FILE:-}" ]; then
-    if [ ! -f "$WHATSAPP_START_CONFIG_FILE" ]; then
-        exit_with_err "Config file '$WHATSAPP_START_CONFIG_FILE' is not found or not file"
+    if [ ! -f "$conf_file" ]; then
+        exit_with_err "'$conf_file' is not found or not file"
     fi
     set -a 
     # shellcheck disable=SC1090
-    if ! source "$WHATSAPP_START_CONFIG_FILE"; then
+    if ! source "$conf_file"; then
         set +a
-        exit_with_err "Cannot source '$WHATSAPP_START_CONFIG_FILE' with config envs" 
+        exit_with_err "Cannot source '$conf_file' with config envs" 
     fi
     set +a
-fi
+}
 
-if [ -z "${WHATSAPP_HAPROXY_BIN:-}" ]; then
-    WHATSAPP_HAPROXY_BIN="haproxy"
-fi
+function set_defaults() {
+    if [ -z "${WHATSAPP_HAPROXY_BIN:-}" ]; then
+        WHATSAPP_HAPROXY_BIN="haproxy"
+    fi
 
-if ! command -v "$WHATSAPP_HAPROXY_BIN" > /dev/null; then
-    exit_with_err "haproxy '$WHATSAPP_HAPROXY_BIN' binary not found"
-fi
+    if ! command -v "$WHATSAPP_HAPROXY_BIN" > /dev/null; then
+        exit_with_err "haproxy '$WHATSAPP_HAPROXY_BIN' binary not found"
+    fi
 
-if [ -z "${WHATSAPP_PROXY_CONFIG_FILE:-}" ]; then
-    export WHATSAPP_PROXY_CONFIG_FILE="$haproxy_cfg_default"
-fi
+    if [ -z "${WHATSAPP_PROXY_CONFIG_FILE:-}" ]; then
+        export WHATSAPP_PROXY_CONFIG_FILE="$haproxy_cfg_default"
+    fi
 
-if [ ! -s "$WHATSAPP_PROXY_CONFIG_FILE" ]; then
-    exit_with_err "Proxy config file '$WHATSAPP_PROXY_CONFIG_FILE' not found or is empty"
-fi
+    if [ ! -s "$WHATSAPP_PROXY_CONFIG_FILE" ]; then
+        exit_with_err "Proxy config file '$WHATSAPP_PROXY_CONFIG_FILE' not found or is empty"
+    fi
 
-if [ -z "${WHATSAPP_PROXY_CERT_FILE:-}" ]; then
-    WHATSAPP_PROXY_CERT_FILE="/etc/haproxy/ssl/proxy.whatsapp.net.pem"
-fi
+    if [ -z "${WHATSAPP_PROXY_CERT_FILE:-}" ]; then
+        WHATSAPP_PROXY_CERT_FILE="/etc/haproxy/ssl/proxy.whatsapp.net.pem"
+    fi
+}
 
-if [ ! -s "${WHATSAPP_PROXY_CERT_FILE:-}" ]; then
+function generate_certs() {
+    if [ -s "${WHATSAPP_PROXY_CERT_FILE:-}" ]; then
+        echo "Cert file '$WHATSAPP_PROXY_CERT_FILE' exists. Skip generation"
+        return 0
+    fi
+
     echo "Cert file '$WHATSAPP_PROXY_CERT_FILE' is not exists. Generate cert file"
 
     full_gen_cert_script="${working_dir}/generate-certs.sh"
@@ -211,9 +221,7 @@ if [ ! -s "${WHATSAPP_PROXY_CERT_FILE:-}" ]; then
     popd
 
     cleanup_tmp_dir || true
-else
-    echo "Cert file '$WHATSAPP_PROXY_CERT_FILE' exists. Skip generation"
-fi
+}
 
 function extract_out_port() {
     local bind_str="$1"
@@ -234,20 +242,42 @@ function extract_out_port() {
     echo -n "$res"
 }
 
-chat_port_out="$(extract_out_port "${WHATSAPP_V4_HTTPS_FRONTEND_BIND:-}" "$media_port_default")"
-media_port_out="$(extract_out_port "${WHATSAPP_V4_NET_FRONTEND_BIND:-}" "$chat_port_default")"
+function print_post_init() {
+    # shellcheck disable=SC2155
+    local chat_port_out="$(extract_out_port "${WHATSAPP_V4_HTTPS_FRONTEND_BIND:-}" "$media_port_default")"
+    # shellcheck disable=SC2155
+    local media_port_out="$(extract_out_port "${WHATSAPP_V4_NET_FRONTEND_BIND:-}" "$chat_port_default")"
 
-echo "Whatsapp proxy will start."
-echo "For set proxy setting in Whatsapp app:"
-echo "  go to Settings menu via three dots"
-echo "  open 'Data and storage menu'"
-echo "  open 'Proxy server'"
-echo "  open 'Configure proxy-server'"
-echo "  set:"
-echo "   'Proxy server' to ip or dns name of proxy running host"
-echo "   'Chat port' to $chat_port_out"
-echo "   'Media port' to $media_port_out"
-echo "--- haproxy logs ---"
+    echo "Whatsapp proxy will start."
+    echo "For set proxy setting in Whatsapp app:"
+    echo "  go to Settings menu via three dots"
+    echo "  open 'Data and storage menu'"
+    echo "  open 'Proxy server'"
+    echo "  open 'Configure proxy-server'"
+    echo "  set:"
+    echo "   'Proxy server' to ip or dns name of proxy running host"
+    echo "   'Chat port' to $chat_port_out"
+    echo "   'Media port' to $media_port_out"
+}
 
-# Start HAProxy as the container's main process.
-exec "$WHATSAPP_HAPROXY_BIN" -f "$WHATSAPP_PROXY_CONFIG_FILE"
+function main() {
+    echo "--- init ---"
+    
+    parse_args "$@"
+    
+    for cfg_f in "${WHATSAPP_START_CONFIG_FILES[@]}"; do
+        load_envs_file "$cfg_f"
+    done
+
+    set_defaults
+    generate_certs
+
+    print_post_init
+    echo "--- haproxy logs ---"
+
+    # Start HAProxy as the container's main process.
+    exec "$WHATSAPP_HAPROXY_BIN" -f "$WHATSAPP_PROXY_CONFIG_FILE"
+}
+
+
+main "$@"
