@@ -113,6 +113,8 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
+echo "--- init logs ---"
+
 if [ -n "${WHATSAPP_START_CONFIG_FILE:-}" ]; then
     if [ ! -f "$WHATSAPP_START_CONFIG_FILE" ]; then
         exit_with_err "Config file '$WHATSAPP_START_CONFIG_FILE' is not found or not file"
@@ -242,9 +244,10 @@ echo "  open 'Data and storage menu'"
 echo "  open 'Proxy server'"
 echo "  open 'Configure proxy-server'"
 echo "  set:"
-echo "   'Proxy server' to ip or dns name of server running host"
+echo "   'Proxy server' to ip or dns name of proxy running host"
 echo "   'Chat port' to $chat_port_out"
 echo "   'Media port' to $media_port_out"
+echo "--- haproxy logs ---"
 
 # Start HAProxy as the container's main process.
 exec "$WHATSAPP_HAPROXY_BIN" -f "$WHATSAPP_PROXY_CONFIG_FILE"
