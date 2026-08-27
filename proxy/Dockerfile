@@ -8,51 +8,31 @@ FROM haproxy:lts-alpine
 USER root
 RUN apk --no-cache add curl openssl jq bash
 
-# Customization variables for certificate generation
-ARG SSL_IP
-ARG SSL_DNS
-
-# Generate + copy the self-signed certificate settings
-WORKDIR /certs
-COPY src/generate-certs.sh /usr/local/bin/generate-certs.sh
-RUN chmod +x /usr/local/bin/generate-certs.sh && \
-    /usr/local/bin/generate-certs.sh && \
-    mkdir --parents /etc/haproxy/ssl/ && \
-    mv /certs/proxy.whatsapp.net.pem /etc/haproxy/ssl/proxy.whatsapp.net.pem && \
-    chown -R haproxy:haproxy /etc/haproxy/
 WORKDIR /
 
-# Copy the startup script
-COPY --chown=haproxy:haproxy src/start.sh /usr/local/bin/start.sh
-RUN chmod +x /usr/local/bin/start.sh
+RUN mkdir -p /opt/whatsapp-proxy && \
+    mkdir -p /home/haproxy/certs && \
+    mkdir -p /user-config && \
+    touch /user-config/override.env && \
+    chown haproxy:haproxy /home/haproxy/certs && \
+    chmod 700 /home/haproxy/certs
 
-# Copy the HAProxy configuration
-COPY --chown=haproxy:haproxy src/proxy_config.cfg /usr/local/etc/haproxy/haproxy.cfg
-RUN chown haproxy:haproxy /usr/local/etc/haproxy
+# Copy src files
+COPY --chown=root:haproxy src/ /opt/whatsapp-proxy
 
-# Copy + define the healthcheck
-COPY src/healthcheck.sh /usr/local/bin/healthcheck.sh
-RUN chmod +x /usr/local/bin/healthcheck.sh
-HEALTHCHECK --interval=10s --start-period=5s CMD bash /usr/local/bin/healthcheck.sh
+# chmod and chown files
+RUN chmod +x /opt/whatsapp-proxy/start.sh && \
+    chmod +x /opt/whatsapp-proxy/generate-certs.sh && \
+    chmod +x /opt/whatsapp-proxy/healthcheck.sh && \
+    chmod 640 /opt/whatsapp-proxy/start-config-docker.env && \
+    chmod 640 /opt/whatsapp-proxy/whatsapp-haproxy.cfg
 
-RUN mkdir --parents /home/haproxy/certs && chown haproxy:haproxy /home/haproxy/certs
-
-# Validate the HAProxy configuration file (sanity check)
-RUN haproxy -c -V -f /usr/local/etc/haproxy/haproxy.cfg
+HEALTHCHECK --interval=10s --start-period=10s CMD bash -c 'source /opt/whatsapp-proxy/start-config-docker.env && /opt/whatsapp-proxy/healthcheck.sh'
 
 # Revert to the haproxy user for runtime operation
 USER haproxy
 
-# Expose the container-supported network ports
-EXPOSE 80/tcp
-EXPOSE 8080/tcp
-EXPOSE 443/tcp
-EXPOSE 8443/tcp
-EXPOSE 5222/tcp
-EXPOSE 8222/tcp
-EXPOSE 8199/tcp
-EXPOSE 587/tcp
-EXPOSE 7777/tcp
+WORKDIR /opt/whatsapp-proxy
 
 # Generate a runtime certificate and start HAProxy
-CMD ["/usr/local/bin/start.sh"]
+CMD ["/opt/whatsapp-proxy/start.sh", "-c", "/user-config/override.env", "-c", "/opt/whatsapp-proxy/start-config-docker.env"]

@@ -4,6 +4,8 @@ License found in the LICENSE file in the root directory
 of this source tree. -->
 # WhatsApp Chat Proxy
 
+Fork of https://github.com/WhatsApp/proxy with configurable start proxy for create chains of proxies
+
 [<img alt="github" src="https://img.shields.io/badge/github-WhatsApp/proxy-8da0cb?style=for-the-badge&labelColor=555555&logo=github" height="20">](https://github.com/WhatsApp/proxy)
 [![CI](https://github.com/WhatsApp/proxy/actions/workflows/ci.yml/badge.svg)](https://github.com/WhatsApp/proxy/actions/workflows/ci.yml)
 
