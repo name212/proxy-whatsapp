@@ -4,7 +4,6 @@
 # License found in the LICENSE file in the root directory
 # of this source tree.
 
-
 set -Eeuo pipefail
 
 working_dir=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
@@ -39,9 +38,10 @@ function usage() {
     echo "Options:"
     echo "  -c|--config PATH - Path to config file with envs params"
     echo "                     Also can be passed via env WHATSAPP_START_CONFIG_FILE"
+    echo "                     Optional. Next envs can be export directly without using config file."
     echo "                     Config file should be dot env file with next variables:"
     echo "                     Start script envs:"
-    echo "                     - HAPROXY_BIN - path to haproxy binary."
+    echo "                     - WHATSAPP_HAPROXY_BIN - path to haproxy binary."
     echo "                         Optional, default: haproxy"
     echo "                     - WHATSAPP_PROXY_CONFIG_FILE - path to haproxy config."
     echo "                         Optional, default: $haproxy_cfg_default"
@@ -49,6 +49,10 @@ function usage() {
     echo "                         Optional, default: /etc/haproxy/ssl/proxy.whatsapp.net.pem"
     echo "                         If file exists and not empty generating cert will skip."
     echo "                     - WHATSAPP_PROXY_CERT_FILE_CHOWN - if passed will chown to cert file to passed string"
+    echo "                         Optional."
+    echo "                     - WHATSAPP_PROXY_SSL_DNS - comma-separated dns names for add to certificate alt names."
+    echo "                         Optional."
+    echo "                     - WHATSAPP_PROXY_SSL_IP - comma-separated ip's for add to certificate alt ip's."
     echo "                         Optional."
     echo "                     "
     echo "                     Next variables will use for configure proxy in proxy config file:"
@@ -116,12 +120,12 @@ if [ -n "${WHATSAPP_START_CONFIG_FILE:-}" ]; then
     set +a
 fi
 
-if [ -z "${HAPROXY_BIN:-}" ]; then
-    HAPROXY_BIN="haproxy"
+if [ -z "${WHATSAPP_HAPROXY_BIN:-}" ]; then
+    WHATSAPP_HAPROXY_BIN="haproxy"
 fi
 
-if ! command "$HAPROXY_BIN" > /dev/null; then
-    exit_with_err "haproxy '$HAPROXY_BIN' binary not found"
+if ! command -v "$WHATSAPP_HAPROXY_BIN" > /dev/null; then
+    exit_with_err "haproxy '$WHATSAPP_HAPROXY_BIN' binary not found"
 fi
 
 if [ -z "${WHATSAPP_PROXY_CONFIG_FILE:-}" ]; then
@@ -196,4 +200,4 @@ else
 fi
 
 # Start HAProxy as the container's main process.
-exec "$HAPROXY_BIN" -f "$WHATSAPP_PROXY_CONFIG_FILE"
+exec "$WHATSAPP_HAPROXY_BIN" -f "$WHATSAPP_PROXY_CONFIG_FILE"

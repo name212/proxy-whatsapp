@@ -1,2 +1,3 @@
 tmp/
 helm/whatsapp-proxy-chart*.tgz
+.whatsapp-proxy-cert.pem
