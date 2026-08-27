@@ -9,6 +9,8 @@ set -Eeuo pipefail
 working_dir=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 
 haproxy_cfg_default="${working_dir}/whatsapp-haproxy.cfg"
+chat_port_default="7777"
+media_port_default="443"
 
 function echo_err() {
 	echo -e "\033[0;31m${1:-}\033[0m" >&2
@@ -60,19 +62,23 @@ function usage() {
     echo "                         If passed bind to 127.0.0.1:\${WHATSAPP_STATS_BIND_PORT}"
     echo "                         Optional."
     echo "                     - WHATSAPP_V4_HTTP_FRONTEND_BIND - http frontend bind string."
+    echo "                         WARNING! Should not contains prefixes like ipv4@"
     echo "                         Optional, default: 127.0.0.1:80"
     echo "                     - WHATSAPP_V4_HTTP_FRONTEND_ACCEPT_PROXY_BIND - if passed, bind frontend with pass real ip for http."
     echo "                         Optional."
     echo "                     - WHATSAPP_V4_HTTPS_FRONTEND_BIND - https (media) frontend bind string"
-    echo "                         Optional, default: 127.0.0.1:443"
+    echo "                         WARNING! Should not contains prefixes like ipv4@"
+    echo "                         Optional, default: 127.0.0.1:${media_port_default}"
     echo "                     - WHATSAPP_V4_HTTPS_FRONTEND_ACCEPT_PROXY_BIND - if passed bind frontend with pass real ip for https"
     echo "                         Optional."
     echo "                     - WHATSAPP_V4_XMPP_FRONTEND_BIND - xmpp frontend bind string"
+    echo "                         WARNING! Should not contains prefixes like ipv4@"
     echo "                         Optional, default: 127.0.0.1:5222"
     echo "                     - WHATSAPP_V4_XMPP_FRONTEND_ACCEPT_PROXY_BIND - if passed bind frontend with pass real ip for xmpp"
     echo "                         Optional."
     echo "                     - WHATSAPP_V4_NET_FRONTEND_BIND - whatsapp net (chat) frontend bind string"
-    echo "                         Optional, default: 127.0.0.1:7777"
+    echo "                         WARNING! Should not contains prefixes like ipv4@"
+    echo "                         Optional, default: 127.0.0.1:${chat_port_default}"
     echo "                     - WHATSAPP_NET_DESTINATION - proxy destination for whatsapp net (chat) with tls"
     echo "                         Optional, default: whatsapp.net:443"
     echo "                     - WHATSAPP_XMPP_DESTINATION - proxy destination for xmpp"
@@ -91,18 +97,18 @@ fi
 while [[ $# -gt 0 ]]; do
     case "$1" in
         -c|--config)
-        if [[ -z "${2:-}" || "${2:-}" == -* ]]; then
-            exit_with_err "Error: Argument for $1 is missing" >&2
-        fi
-        WHATSAPP_START_CONFIG_FILE="${2-}"
-        shift 2
+            if [[ -z "${2:-}" || "${2:-}" == -* ]]; then
+                exit_with_err "Error: Argument for $1 is missing" >&2
+            fi
+            WHATSAPP_START_CONFIG_FILE="${2-}"
+            shift 2
         ;;
         -h|--help)
-        usage "0"
+            usage "0"
         ;;
         *)
-        echo_err "Unknown argument '${1}'"
-        usage "1"
+            echo_err "Unknown argument '${1}'"
+            usage "1"
         ;;
     esac
 done
@@ -152,9 +158,15 @@ if [ ! -s "${WHATSAPP_PROXY_CERT_FILE:-}" ]; then
     export tmp_cert_dir=""
     
     function cleanup_tmp_dir {
-        if [ -n "$tmp_cert_dir" ] && [ -d "$tmp_cert_dir" ]; then
-            rm -rf "$tmp_cert_dir"
-            echo "'$tmp_cert_dir' removed"
+        if [ -n "$tmp_cert_dir" ]; then
+            if [ -d "$tmp_cert_dir" ]; then
+                rm -rf "$tmp_cert_dir"
+                echo "Temp cert gen dir '$tmp_cert_dir' removed"
+            else
+                echo "$tmp_cert_dir is not dir. Skip cleanup"
+            fi
+        else
+            echo "tmp_cert_dir is empty. Skip cleanup"
         fi      
     }
 
@@ -195,9 +207,44 @@ if [ ! -s "${WHATSAPP_PROXY_CERT_FILE:-}" ]; then
     fi
     
     popd
+
+    cleanup_tmp_dir || true
 else
     echo "Cert file '$WHATSAPP_PROXY_CERT_FILE' exists. Skip generation"
 fi
+
+function extract_out_port() {
+    local bind_str="$1"
+    local bind_default="$2"
+    if [ -z "$bind_str" ]; then
+        echo -n "$bind_default"
+        return 0
+    fi
+    local -a bind_parts=()
+    IFS=':' read -ra bind_parts <<< "$bind_str"
+
+    local res="${bind_parts[-1]}"
+
+    if [ -z "$res" ]; then
+        res="Cannot extract port from '$bind_str'"
+    fi
+    
+    echo -n "$res"
+}
+
+media_port_out="$(extract_out_port "${WHATSAPP_V4_HTTPS_FRONTEND_BIND:-}" "$media_port_default")"
+chat_port_out="$(extract_out_port "${WHATSAPP_V4_NET_FRONTEND_BIND:-}" "$chat_port_default")"
+
+echo "Whatsapp proxy will start."
+echo "For set proxy setting in Whatsapp app:"
+echo "  go to Settings menu via three dots"
+echo "  open 'Data and storage menu'"
+echo "  open 'Proxy server'"
+echo "  open 'Configure proxy-server'"
+echo "  set:"
+echo "   'Proxy server' to ip or dns name of server running host"
+echo "   'Chat port' to $chat_port_out"
+echo "   'Media port' to $media_port_out"
 
 # Start HAProxy as the container's main process.
 exec "$WHATSAPP_HAPROXY_BIN" -f "$WHATSAPP_PROXY_CONFIG_FILE"
