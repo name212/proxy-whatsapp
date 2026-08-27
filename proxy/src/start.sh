@@ -9,8 +9,8 @@ set -Eeuo pipefail
 working_dir=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 
 haproxy_cfg_default="${working_dir}/whatsapp-haproxy.cfg"
-chat_port_default="7777"
-media_port_default="443"
+media_port_default="7777"
+chat_port_default="443"
 
 function echo_err() {
 	echo -e "\033[0;31m${1:-}\033[0m" >&2
@@ -234,8 +234,8 @@ function extract_out_port() {
     echo -n "$res"
 }
 
-media_port_out="$(extract_out_port "${WHATSAPP_V4_HTTPS_FRONTEND_BIND:-}" "$media_port_default")"
-chat_port_out="$(extract_out_port "${WHATSAPP_V4_NET_FRONTEND_BIND:-}" "$chat_port_default")"
+chat_port_out="$(extract_out_port "${WHATSAPP_V4_HTTPS_FRONTEND_BIND:-}" "$media_port_default")"
+media_port_out="$(extract_out_port "${WHATSAPP_V4_NET_FRONTEND_BIND:-}" "$chat_port_default")"
 
 echo "Whatsapp proxy will start."
 echo "For set proxy setting in Whatsapp app:"
